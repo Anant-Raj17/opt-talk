@@ -10,13 +10,27 @@ final class HotkeyTap: @unchecked Sendable {
 
     private var tap: CFMachPort?
     private var holding = false
+    private let lock = NSLock()
+    private var dictationOn = true
     private let rightOptionKeyCode: Int64 = 61
     private let rightOptionDeviceBit: UInt64 = 0x00000040
 
     private init() {}
 
+    func setDictationOn(_ on: Bool) {
+        lock.lock()
+        dictationOn = on
+        lock.unlock()
+        if !on {
+            holding = false
+        }
+    }
+
     func start() {
-        stop()
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: true)
+            return
+        }
         let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         let pointer = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
@@ -37,6 +51,7 @@ final class HotkeyTap: @unchecked Sendable {
                 AppState.shared.status = .needsPermission
                 AppState.shared.statusDetail = "Accessibility is required for Right Option"
                 AppState.shared.lastError = "Could not install the key tap. Enable Accessibility for opt-talk."
+                MenuBarController.shared.reload()
             }
             return
         }
@@ -63,20 +78,29 @@ final class HotkeyTap: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
         }
 
-        let enabled = MainActor.assumeIsolatedIfAvailable {
-            AppState.shared.enabled && AppState.shared.modelsReady && AppState.shared.status != .needsPermission
-        }
-
-        guard enabled else {
+        lock.lock()
+        let armed = dictationOn
+        lock.unlock()
+        guard armed else {
             return Unmanaged.passUnretained(event)
         }
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        guard keyCode == rightOptionKeyCode else {
+        let flags = event.flags
+        let deviceRightAlt = flags.rawValue & rightOptionDeviceBit != 0
+        let isRightOptionKey = keyCode == rightOptionKeyCode
+        let rightAltEdge = deviceRightAlt != holding && (keyCode == 0 || deviceRightAlt || isRightOptionKey)
+        guard isRightOptionKey || rightAltEdge else {
             return Unmanaged.passUnretained(event)
         }
 
-        let down = event.flags.rawValue & rightOptionDeviceBit != 0
+        let down: Bool
+        if isRightOptionKey {
+            down = flags.contains(.maskAlternate) || deviceRightAlt
+        } else {
+            down = deviceRightAlt
+        }
+
         if down && !holding {
             holding = true
             DispatchQueue.main.async { [weak self] in
@@ -90,18 +114,5 @@ final class HotkeyTap: @unchecked Sendable {
         }
 
         return nil
-    }
-}
-
-private extension MainActor {
-    static func assumeIsolatedIfAvailable(_ body: @MainActor () -> Bool) -> Bool {
-        if Thread.isMainThread {
-            return MainActor.assumeIsolated(body)
-        }
-        var result = false
-        DispatchQueue.main.sync {
-            result = body()
-        }
-        return result
     }
 }

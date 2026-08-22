@@ -16,6 +16,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DictationController.shared.bootstrap()
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        DictationController.shared.rearmHotkeyIfNeeded()
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }

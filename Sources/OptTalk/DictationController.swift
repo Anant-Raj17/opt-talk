@@ -12,6 +12,8 @@ final class DictationController {
     private var loadedParakeet: ParakeetVersion?
     private var busy = false
     private var listening = false
+    private var holdActive = false
+    private var statusBeforeHold: AppStatus?
     private var s1LoadTask: Task<Void, Error>?
     private var idleUnloadTask: Task<Void, Never>?
 
@@ -24,6 +26,7 @@ final class DictationController {
         HotkeyTap.shared.onHoldEnded = { [weak self] in
             Task { @MainActor in self?.endHold() }
         }
+        HotkeyTap.shared.setDictationOn(AppState.shared.enabled)
         HotkeyTap.shared.start()
 
         Task {
@@ -31,14 +34,26 @@ final class DictationController {
             PermissionService.promptAccessibility()
             PermissionService.refreshStatus()
             await prepareModels()
+            if AppState.shared.enabled, PermissionService.accessibilityGranted {
+                HotkeyTap.shared.start()
+            }
         }
+    }
+
+    func rearmHotkeyIfNeeded() {
+        guard AppState.shared.enabled, PermissionService.accessibilityGranted else { return }
+        HotkeyTap.shared.setDictationOn(true)
+        HotkeyTap.shared.start()
     }
 
     func setEnabled(_ enabled: Bool) {
         AppState.shared.enabled = enabled
+        HotkeyTap.shared.setDictationOn(enabled)
         if !enabled {
             _ = recorder.stop()
             listening = false
+            holdActive = false
+            statusBeforeHold = nil
             cancelIdleUnload()
             s1LoadTask?.cancel()
             s1LoadTask = nil
@@ -97,6 +112,10 @@ final class DictationController {
             state.statusDetail = PermissionService.accessibilityGranted
                 ? ""
                 : "Need Accessibility for paste and Right Option"
+            if PermissionService.accessibilityGranted {
+                HotkeyTap.shared.setDictationOn(true)
+                HotkeyTap.shared.start()
+            }
             MenuBarController.shared.reload()
         } catch {
             state.modelsReady = false
@@ -107,17 +126,28 @@ final class DictationController {
     }
 
     private func beginHold() {
-        guard AppState.shared.enabled, AppState.shared.modelsReady, !busy else { return }
-        guard PermissionService.microphoneGranted else { return }
+        guard AppState.shared.enabled else { return }
+        if !holdActive {
+            statusBeforeHold = AppState.shared.status
+        }
+        holdActive = true
+        AppState.shared.status = .listening
+        AppState.shared.lastError = nil
+        MenuBarController.shared.reload()
+
+        guard AppState.shared.modelsReady, !busy else {
+            return
+        }
+        guard PermissionService.microphoneGranted else {
+            return
+        }
         cancelIdleUnload()
         warmupS1()
         do {
             try recorder.start()
             listening = true
-            AppState.shared.status = .listening
-            AppState.shared.lastError = nil
-            MenuBarController.shared.reload()
         } catch {
+            listening = false
             AppState.shared.lastError = "Mic failed: \(error.localizedDescription)"
             MenuBarController.shared.reload()
             scheduleIdleUnload()
@@ -125,7 +155,17 @@ final class DictationController {
     }
 
     private func endHold() {
-        guard listening else { return }
+        guard holdActive else { return }
+        holdActive = false
+        guard listening else {
+            if AppState.shared.enabled {
+                let restored = statusBeforeHold == .listening ? .idle : (statusBeforeHold ?? .idle)
+                AppState.shared.status = restored
+            }
+            statusBeforeHold = nil
+            MenuBarController.shared.reload()
+            return
+        }
         listening = false
         let samples = recorder.stop()
         guard samples.count > 4800 else {

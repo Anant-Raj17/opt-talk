@@ -43,7 +43,7 @@ public final class S1MiniEngine: @unchecked Sendable {
         }
 
         var ctxParams = llama_context_default_params()
-        ctxParams.n_ctx = 2048
+        ctxParams.n_ctx = 4096
         ctxParams.n_batch = 512
         ctxParams.n_threads = max(2, Int32(ProcessInfo.processInfo.activeProcessorCount / 2))
         ctxParams.n_threads_batch = ctxParams.n_threads
@@ -108,15 +108,26 @@ public final class S1MiniEngine: @unchecked Sendable {
 
         llama_memory_clear(llama_get_memory(context), true)
 
-        var batch = llama_batch_init(Int32(max(promptTokens.count, 1)), 0, 1)
+        let nBatch = 512
+        var batch = llama_batch_init(Int32(nBatch), 0, 1)
         defer { llama_batch_free(batch) }
 
-        try decodeTokens(context: context, batch: &batch, tokens: promptTokens, startPos: 0)
+        var filled = 0
+        while filled < promptTokens.count {
+            let end = min(filled + nBatch, promptTokens.count)
+            try decodeTokens(
+                context: context,
+                batch: &batch,
+                tokens: promptTokens,
+                range: filled..<end
+            )
+            filled = end
+        }
 
         var output = ""
         output.reserveCapacity(256)
         var pos = promptTokens.count
-        let maxNew = min(1024, nCtx - promptTokens.count - 1)
+        let maxNew = max(0, nCtx - promptTokens.count - 1)
         let eos = llama_vocab_eos(vocab)
         let eot = llama_vocab_eot(vocab)
 
@@ -148,7 +159,13 @@ public final class S1MiniEngine: @unchecked Sendable {
             }
 
             pos += 1
-            try decodeTokens(context: context, batch: &batch, tokens: [best], startPos: pos - 1)
+            try decodeTokens(
+                context: context,
+                batch: &batch,
+                tokens: [best],
+                range: 0..<1,
+                startPos: pos - 1
+            )
         }
 
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -158,17 +175,21 @@ public final class S1MiniEngine: @unchecked Sendable {
         context: OpaquePointer,
         batch: inout llama_batch,
         tokens: [llama_token],
-        startPos: Int
+        range: Range<Int>,
+        startPos: Int? = nil
     ) throws {
-        batch.n_tokens = Int32(tokens.count)
-        for (i, token) in tokens.enumerated() {
-            batch.token[i] = token
-            batch.pos[i] = Int32(startPos + i)
+        let count = range.count
+        guard count > 0 else { return }
+        let posBase = startPos ?? range.lowerBound
+        batch.n_tokens = Int32(count)
+        for i in 0..<count {
+            batch.token[i] = tokens[range.lowerBound + i]
+            batch.pos[i] = Int32(posBase + i)
             batch.n_seq_id[i] = 1
             if let seqIds = batch.seq_id, let seq = seqIds[i] {
                 seq[0] = 0
             }
-            batch.logits[i] = i == tokens.count - 1 ? 1 : 0
+            batch.logits[i] = i == count - 1 ? 1 : 0
         }
         guard llama_decode(context, batch) == 0 else {
             throw S1MiniError.decodeFailed

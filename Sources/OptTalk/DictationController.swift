@@ -14,6 +14,8 @@ final class DictationController {
     private var listening = false
     private var holdActive = false
     private var statusBeforeHold: AppStatus?
+    private var s1LoadTask: Task<Void, Error>?
+    private var idleUnloadTask: Task<Void, Never>?
 
     private init() {}
 
@@ -51,6 +53,10 @@ final class DictationController {
             _ = recorder.stop()
             listening = false
             holdActive = false
+            statusBeforeHold = nil
+            cancelIdleUnload()
+            s1LoadTask?.cancel()
+            s1LoadTask = nil
             s1.unload()
             asr = nil
             loadedParakeet = nil
@@ -101,14 +107,6 @@ final class DictationController {
                 loadedParakeet = version
             }
 
-            if !s1.isLoaded {
-                state.statusDetail = "Loading S1-mini by Superwhisper"
-                MenuBarController.shared.reload()
-                try await Task.detached { [s1] in
-                    try s1.load(modelURL: ModelStore.s1MiniURL)
-                }.value
-            }
-
             state.modelsReady = true
             state.status = PermissionService.accessibilityGranted ? .idle : .needsPermission
             state.statusDetail = PermissionService.accessibilityGranted
@@ -143,6 +141,8 @@ final class DictationController {
         guard PermissionService.microphoneGranted else {
             return
         }
+        cancelIdleUnload()
+        warmupS1()
         do {
             try recorder.start()
             listening = true
@@ -150,6 +150,7 @@ final class DictationController {
             listening = false
             AppState.shared.lastError = "Mic failed: \(error.localizedDescription)"
             MenuBarController.shared.reload()
+            scheduleIdleUnload()
         }
     }
 
@@ -170,6 +171,7 @@ final class DictationController {
         guard samples.count > 4800 else {
             AppState.shared.status = .idle
             MenuBarController.shared.reload()
+            scheduleIdleUnload()
             return
         }
         Task { await transcribeAndPaste(samples: samples) }
@@ -177,12 +179,14 @@ final class DictationController {
 
     private func transcribeAndPaste(samples: [Float]) async {
         busy = true
+        cancelIdleUnload()
         AppState.shared.status = .processing
         MenuBarController.shared.reload()
         defer {
             busy = false
             if AppState.shared.enabled {
                 AppState.shared.status = .idle
+                scheduleIdleUnload()
             }
             MenuBarController.shared.reload()
         }
@@ -193,6 +197,8 @@ final class DictationController {
             let result = try await asr.transcribe(samples, decoderState: &decoderState)
             let trimmed = result.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
+
+            try await ensureS1Loaded()
 
             let settings = SettingsStore.shared
             let engine = s1
@@ -211,6 +217,45 @@ final class DictationController {
             PasteService.paste(cleaned)
         } catch {
             AppState.shared.lastError = error.localizedDescription
+        }
+    }
+
+    private func warmupS1() {
+        guard !s1.isLoaded else { return }
+        Task { try? await ensureS1Loaded() }
+    }
+
+    private func ensureS1Loaded() async throws {
+        if s1.isLoaded { return }
+        if let s1LoadTask {
+            try await s1LoadTask.value
+            return
+        }
+        let task = Task.detached { [s1] in
+            try s1.load(modelURL: ModelStore.s1MiniURL)
+        }
+        s1LoadTask = task
+        do {
+            try await task.value
+        } catch {
+            s1LoadTask = nil
+            throw error
+        }
+    }
+
+    private func cancelIdleUnload() {
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+    }
+
+    private func scheduleIdleUnload() {
+        cancelIdleUnload()
+        idleUnloadTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(60))
+            guard !Task.isCancelled else { return }
+            guard AppState.shared.enabled, !busy, !listening else { return }
+            s1.unload()
+            s1LoadTask = nil
         }
     }
 }

@@ -50,6 +50,7 @@ final class DictationController {
         AppState.shared.enabled = enabled
         HotkeyTap.shared.setDictationOn(enabled)
         if !enabled {
+            MediaPauseService.shared.resumeIfWePaused()
             _ = recorder.stop()
             listening = false
             holdActive = false
@@ -143,11 +144,13 @@ final class DictationController {
         }
         cancelIdleUnload()
         warmupS1()
+        MediaPauseService.shared.pauseIfPlaying()
         do {
             try recorder.start()
             listening = true
         } catch {
             listening = false
+            MediaPauseService.shared.resumeIfWePaused()
             AppState.shared.lastError = "Mic failed: \(error.localizedDescription)"
             MenuBarController.shared.reload()
             scheduleIdleUnload()
@@ -166,6 +169,7 @@ final class DictationController {
             MenuBarController.shared.reload()
             return
         }
+        MediaPauseService.shared.resumeIfWePaused()
         listening = false
         let samples = recorder.stop()
         guard samples.count > 4800 else {

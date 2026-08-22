@@ -168,8 +168,11 @@ final class DictationController {
                     context: context
                 )
             }.value
-            guard !cleaned.isEmpty else { return }
-            PasteService.paste(cleaned)
+            // S1-mini sometimes emits nothing for command-shaped speech
+            // ("make the repo public rather than private"). Paste ASR instead.
+            let toPaste = cleaned.isEmpty ? trimmed : cleaned
+            guard !toPaste.isEmpty else { return }
+            PasteService.paste(toPaste)
         } catch {
             AppState.shared.lastError = error.localizedDescription
         }

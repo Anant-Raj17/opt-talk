@@ -141,7 +141,11 @@ public final class S1MiniEngine: @unchecked Sendable {
             }
 
             if let piece = detokenize(vocab: vocab, token: best) {
-                if piece.contains("<|im_end|>") {
+                if piece.contains("<|im_end|>") || piece.contains("<|endoftext|>") {
+                    let kept = piece
+                        .replacingOccurrences(of: "<|im_end|>", with: "")
+                        .replacingOccurrences(of: "<|endoftext|>", with: "")
+                    output.append(kept)
                     break
                 }
                 output.append(piece)
@@ -151,7 +155,21 @@ public final class S1MiniEngine: @unchecked Sendable {
             try decodeTokens(context: context, batch: &batch, tokens: [best], startPos: pos - 1)
         }
 
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Self.stripChatMarkup(output)
+    }
+
+    /// Drop leftover Qwen think / chat tokens so a blank cleanup is really blank.
+    static func stripChatMarkup(_ raw: String) -> String {
+        var text = raw
+        while let start = text.range(of: "<think>"),
+              let end = text.range(of: "</think>"),
+              start.lowerBound <= end.lowerBound {
+            text.removeSubrange(start.lowerBound..<end.upperBound)
+        }
+        for marker in ["<think>", "</think>", "<|im_end|>", "<|im_start|>", "<|endoftext|>"] {
+            text = text.replacingOccurrences(of: marker, with: "")
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func decodeTokens(

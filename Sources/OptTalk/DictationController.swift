@@ -1,3 +1,4 @@
+import AppKit
 import FluidAudio
 import Foundation
 import S1Mini
@@ -16,6 +17,8 @@ final class DictationController {
     private var statusBeforeHold: AppStatus?
     private var s1LoadTask: Task<Void, Error>?
     private var idleUnloadTask: Task<Void, Never>?
+    private var tapActivity: NSObjectProtocol?
+    private var wakeObservers: [NSObjectProtocol] = []
 
     private init() {}
 
@@ -27,7 +30,11 @@ final class DictationController {
             Task { @MainActor in self?.endHold() }
         }
         HotkeyTap.shared.setDictationOn(AppState.shared.enabled)
+        if AppState.shared.enabled {
+            beginTapActivity()
+        }
         HotkeyTap.shared.start()
+        observeWake()
 
         Task {
             _ = await PermissionService.requestMicrophone()
@@ -43,13 +50,36 @@ final class DictationController {
     func rearmHotkeyIfNeeded() {
         guard AppState.shared.enabled, PermissionService.accessibilityGranted else { return }
         HotkeyTap.shared.setDictationOn(true)
+        beginTapActivity()
         HotkeyTap.shared.start()
+    }
+
+    func handleSystemWake() {
+        recorder.reset()
+        guard AppState.shared.enabled, PermissionService.accessibilityGranted else { return }
+        HotkeyTap.shared.setDictationOn(true)
+        beginTapActivity()
+        HotkeyTap.shared.recreate()
+        guard AppState.shared.modelsReady else { return }
+        warmupS1()
+    }
+
+    func shutdown() {
+        endTapActivity()
+        HotkeyTap.shared.stop()
+        recorder.reset()
+        for observer in wakeObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        wakeObservers.removeAll()
     }
 
     func setEnabled(_ enabled: Bool) {
         AppState.shared.enabled = enabled
         HotkeyTap.shared.setDictationOn(enabled)
         if !enabled {
+            endTapActivity()
+            HotkeyTap.shared.stop()
             MediaPauseService.shared.resumeIfWePaused()
             _ = recorder.stop()
             listening = false
@@ -64,6 +94,7 @@ final class DictationController {
             AppState.shared.status = .paused
             AppState.shared.modelsReady = false
         } else {
+            beginTapActivity()
             HotkeyTap.shared.start()
             Task { await prepareModels() }
         }
@@ -115,6 +146,7 @@ final class DictationController {
                 : "Need Accessibility for paste and Right Option"
             if PermissionService.accessibilityGranted {
                 HotkeyTap.shared.setDictationOn(true)
+                beginTapActivity()
                 HotkeyTap.shared.start()
             }
             MenuBarController.shared.reload()
@@ -224,6 +256,42 @@ final class DictationController {
             PasteService.paste(toPaste)
         } catch {
             AppState.shared.lastError = error.localizedDescription
+        }
+    }
+
+    private func observeWake() {
+        let center = NSWorkspace.shared.notificationCenter
+        let handler: @Sendable (Notification) -> Void = { _ in
+            Task { @MainActor in
+                DictationController.shared.handleSystemWake()
+            }
+        }
+        wakeObservers.append(center.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main,
+            using: handler
+        ))
+        wakeObservers.append(center.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main,
+            using: handler
+        ))
+    }
+
+    private func beginTapActivity() {
+        guard tapActivity == nil else { return }
+        tapActivity = ProcessInfo.processInfo.beginActivity(
+            options: .userInitiatedAllowingIdleSystemSleep,
+            reason: "Right Option tap"
+        )
+    }
+
+    private func endTapActivity() {
+        if let tapActivity {
+            ProcessInfo.processInfo.endActivity(tapActivity)
+            self.tapActivity = nil
         }
     }
 

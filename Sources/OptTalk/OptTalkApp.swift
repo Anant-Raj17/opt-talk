@@ -21,6 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DictationController.shared.rearmHotkeyIfNeeded()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        DictationController.shared.shutdown()
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }

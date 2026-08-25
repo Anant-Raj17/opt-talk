@@ -2,7 +2,7 @@
 import Foundation
 
 final class AudioRecorder: @unchecked Sendable {
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private let lock = NSLock()
     private var samples: [Float] = []
     private var converter: AVAudioConverter?
@@ -17,12 +17,17 @@ final class AudioRecorder: @unchecked Sendable {
 
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0 else {
+            recording = false
+            throw RecorderError.badFormat
+        }
         guard let targetFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 16_000,
             channels: 1,
             interleaved: false
         ) else {
+            recording = false
             throw RecorderError.badFormat
         }
         converter = AVAudioConverter(from: inputFormat, to: targetFormat)
@@ -40,12 +45,19 @@ final class AudioRecorder: @unchecked Sendable {
             engine.stop()
         }
         engine.inputNode.removeTap(onBus: 0)
+        engine.reset()
+        engine = AVAudioEngine()
         lock.lock()
         recording = false
+        converter = nil
         let captured = samples
         samples = []
         lock.unlock()
         return captured
+    }
+
+    func reset() {
+        _ = stop()
     }
 
     private func append(buffer: AVAudioPCMBuffer, targetFormat: AVAudioFormat) {

@@ -9,6 +9,7 @@ final class HotkeyTap: @unchecked Sendable {
     var onHoldEnded: (() -> Void)?
 
     private var tap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
     private var holding = false
     private let lock = NSLock()
     private var dictationOn = true
@@ -27,10 +28,29 @@ final class HotkeyTap: @unchecked Sendable {
     }
 
     func start() {
-        if let tap {
-            CGEvent.tapEnable(tap: tap, enable: true)
+        if isTapLive {
             return
         }
+        recreate()
+    }
+
+    func recreate() {
+        invalidate()
+        holding = false
+        install()
+    }
+
+    func stop() {
+        invalidate()
+        holding = false
+    }
+
+    private var isTapLive: Bool {
+        guard let tap, CFMachPortIsValid(tap) else { return false }
+        return CGEvent.tapIsEnabled(tap: tap)
+    }
+
+    private func install() {
         let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         let pointer = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
@@ -56,24 +76,29 @@ final class HotkeyTap: @unchecked Sendable {
             return
         }
 
-        self.tap = tap
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        self.tap = tap
+        self.runLoopSource = source
     }
 
-    func stop() {
+    private func invalidate() {
         if let tap {
             CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
         tap = nil
-        holding = false
+        runLoopSource = nil
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap {
-                CGEvent.tapEnable(tap: tap, enable: true)
+            DispatchQueue.main.async { [weak self] in
+                self?.recreate()
             }
             return Unmanaged.passUnretained(event)
         }

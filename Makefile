@@ -20,6 +20,7 @@ app: build
 	mkdir -p $(APP)/Contents/Resources
 	cp $(BUILD_DIR)/OptTalk $(APP)/Contents/MacOS/OptTalk
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
+	cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
 	cp -R $(BUILD_DIR)/llama.framework $(APP)/Contents/Frameworks/
 	-cp -R $(BUILD_DIR)/FluidAudio_FluidAudio.bundle $(APP)/Contents/Resources/
 	install_name_tool -add_rpath "@executable_path/../Frameworks" $(APP)/Contents/MacOS/OptTalk

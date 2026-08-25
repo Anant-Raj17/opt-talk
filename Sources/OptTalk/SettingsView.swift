@@ -11,9 +11,9 @@ final class SettingsWindowController {
         if window == nil {
             let root = NSHostingController(rootView: SettingsView())
             let window = NSWindow(contentViewController: root)
-            window.title = "opt-talk"
+            window.title = "\(AppBrand.emoji) \(AppBrand.name)"
             window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 420, height: 460))
+            window.setContentSize(NSSize(width: 420, height: 520))
             window.center()
             self.window = window
         }
@@ -33,6 +33,25 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                HStack(spacing: 12) {
+                    Text(AppBrand.emoji)
+                        .font(.system(size: 40))
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(AppBrand.name)
+                            .font(.title2.weight(.semibold))
+                        Text("Local hold-to-talk dictation")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(AppBrand.name)")
+            }
+
             Section("Speech to text") {
                 Picker("Parakeet", selection: $version) {
                     ForEach(ParakeetVersion.allCases) { item in
@@ -84,7 +103,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 440)
+        .frame(width: 400, height: 500)
         .onAppear {
             mics = AVCaptureDevice.DiscoverySession(
                 deviceTypes: [.microphone],

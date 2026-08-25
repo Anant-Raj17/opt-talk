@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        AppBrand.applyApplicationIcon()
         MenuBarController.shared.install()
         DictationController.shared.bootstrap()
     }

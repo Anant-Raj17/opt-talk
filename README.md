@@ -24,7 +24,7 @@ First launch downloads Parakeet and `s1-mini-q4_k_m.gguf` into `~/Library/Applic
 
 ## Settings
 
-Menu bar icon: toggle dictation, Settings, Quit.
+Menu bar icon (🗣️): toggle dictation, Settings, Quit.
 
 S1-mini control line (styling / structure / context) lives in Settings. The system prompt is the one from the S1-mini model card. Decoding is greedy with thinking off.
 

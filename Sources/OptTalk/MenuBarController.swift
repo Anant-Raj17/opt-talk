@@ -9,8 +9,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "opt-talk")
-        item.button?.image?.isTemplate = true
+        item.button?.image = AppBrand.menuBarImage()
+        item.button?.imagePosition = .imageOnly
         item.menu = menu
         menu.delegate = self
         self.item = item
@@ -21,7 +21,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         let state = AppState.shared
 
-        let title = NSMenuItem(title: "opt-talk", action: nil, keyEquivalent: "")
+        let title = NSMenuItem(title: "\(AppBrand.emoji) \(AppBrand.name)", action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
 
@@ -44,7 +44,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(settings)
 
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit opt-talk", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit \(AppBrand.name)", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
 
@@ -74,46 +74,37 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private func updateButtonAppearance() {
         guard let button = item?.button else { return }
         let state = AppState.shared
-        let symbol: String
         let label: String
         let tint: NSColor?
         let tooltip: String
         switch state.status {
         case .idle:
-            symbol = "mic"
             label = ""
             tint = nil
-            tooltip = "opt-talk · Hold Right Option to dictate"
+            tooltip = "\(AppBrand.name) · Hold Right Option to dictate"
         case .listening:
-            symbol = "mic.fill"
             label = "REC"
             tint = .systemRed
-            tooltip = "opt-talk · Listening"
+            tooltip = "\(AppBrand.name) · Listening"
         case .processing:
-            symbol = "waveform"
             label = "…"
             tint = .systemOrange
-            tooltip = "opt-talk · Transcribing"
+            tooltip = "\(AppBrand.name) · Transcribing"
         case .paused:
-            symbol = "mic.slash"
             label = ""
             tint = nil
-            tooltip = "opt-talk · Paused"
+            tooltip = "\(AppBrand.name) · Paused"
         case .needsPermission:
-            symbol = "exclamationmark.triangle.fill"
             label = "!"
             tint = .systemYellow
-            tooltip = "opt-talk · Needs permission"
+            tooltip = "\(AppBrand.name) · Needs permission"
         case .downloading:
-            symbol = "arrow.down.circle"
-            label = ""
+            label = "↓"
             tint = nil
-            tooltip = "opt-talk · Downloading models"
+            tooltip = "\(AppBrand.name) · Downloading models"
         }
 
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "opt-talk")
-        image?.isTemplate = true
-        button.image = image
+        button.image = AppBrand.menuBarImage()
         button.imagePosition = label.isEmpty ? .imageOnly : .imageLeading
         button.contentTintColor = tint
         if label.isEmpty {
